@@ -1,0 +1,415 @@
+---
+title: "monsoon and dry visualization"
+author: "Pearl Ante-Testard"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = here::here("output")
+                          )})
+---
+
+
+```{r clean environment, echo=FALSE}
+
+rm(list=ls(all=TRUE))
+
+```
+
+```{r configuration, message=FALSE}
+
+source(here::here("R", "0-config.R"))
+
+```
+
+```{r read formatted data, message=FALSE}
+
+df_analysis <- readRDS(file = here::here("data", "final",
+"exposure-monsoon-protozoa-2015-16-anthrosvy2-latest-2.rds"
+#"exposure-monsoon-protozoa-2015-16-anthrosvy2-latest.rds"
+                      #"exposure-monsoon-protozoa-2015-16-anthrosvy2.rds"
+                      )) 
+
+df_analysis <- df_analysis %>%
+  mutate(
+    block = factor(block),
+    WSH = case_when(grepl("WSH", tr) ~ "WSH",
+                    TRUE ~ "No WSH"),
+    WSH = factor(WSH, levels = c("No WSH", "WSH")),
+    Nutrition = case_when(grepl("Nutrition", tr) ~ "Nutrition",
+                    TRUE ~ "No Nutrition"),
+    Nutrition = factor(Nutrition, levels = c("No Nutrition", "Nutrition")),
+    posgi = case_when(
+      posgi == "0" ~ 0,
+      posgi == "1" ~ 1
+    ),
+    posgi = factor(posgi))
+  
+
+colnames(df_analysis)
+table(df_analysis$posgi)
+summary(df_analysis$monsoon_months)
+summary(df_analysis$dry_months)
+
+```
+
+## Interventions arms by monsoon season
+
+```{r monsoon by arm, message=FALSE}
+
+# Reshape the data
+#df_long <- df_analysis %>%
+#  pivot_longer(cols = c(WSH, Nutrition), names_to = "variable", 
+#               values_to = "value")
+
+# Create the combined plot using facet_wrap
+#violin_monsoon <- ggplot(df_long, aes(x = value, y = Number_Months_Monsoon,
+          #                            fill = interaction(variable, value))) +
+ # geom_violin(scale = "width", trim = FALSE) +
+ # labs(x = "", y = "Number of monsoon months") +
+ # ylim(c(8, 20)) +
+ # theme_minimal() +
+ # theme(axis.text.x = element_text(angle = 45, hjust = 1),
+  #      legend.position = "none") +
+  #facet_wrap(~ variable, scales = "free_x", labeller = as_labeller(c(WSH = "WSH", Nutrition = "Nutrition"))) +
+ # scale_fill_manual(values = c("Nutrition.No Nutrition" = "grey", 
+                             #  "Nutrition.Nutrition" = "darkgreen", 
+                             #  "WSH.No WSH" = "grey", 
+                             #  "WSH.WSH" = "darkblue"))
+
+
+violin_monsoon <- ggplot(df_analysis, aes(x = WSH, y = monsoon_months,
+                                      fill = WSH)) +
+  geom_violin(scale = "width", trim = FALSE) +
+  labs(x = "", y = "Number of monsoon months"#, 
+       #tag = "B"
+       ) +
+  ylim(c(8, 20)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") +
+  scale_fill_manual(values = c("No WSH" = "grey", 
+                               "WSH" = "blue"))
+
+
+violin_monsoon
+
+```
+
+```{r monsoon by arm save, message=FALSE}
+
+#ggsave(here::here("output", "monsoon_violin.png"),
+       #violin_monsoon, width = 6, height = 4, dpi = "retina")
+
+```
+
+## Interventions arms by dry season
+
+```{r dry by arm, message=FALSE}
+
+violin_dry <- ggplot(df_analysis, aes(x = WSH, y = dry_months,
+                                      fill = WSH)) +
+  geom_violin(scale = "width", trim = FALSE) +
+  labs(x = "", y = "Number of dry months", tag = "B") +
+  ylim(c(0, 25)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") +
+  scale_fill_manual(values = c("No WSH" = "darkgrey", 
+                               "WSH" = "blue"))
+
+
+violin_dry
+
+```
+
+```{r dry by arm save, message=FALSE}
+
+#ggsave(here::here("output", "dry_violin.png"),
+    #   violin_dry, width = 6, height = 4, dpi = "retina")
+
+```
+
+
+## Interventions arms by dry season
+
+```{r dry by arm, message=FALSE}
+
+# Reshape the data
+df_dry_long <- df_analysis %>%
+  pivot_longer(cols = c(WSH, Nutrition), names_to = "variable", values_to = "value")
+
+# Create the combined plot using facet_wrap
+violin_dry_wsh_nutri <- ggplot(df_dry_long, aes(x = value, 
+                                      #y = Number_Months_Dry, 
+                                      y = dry_months,
+                                      fill = interaction(variable, value))) +
+  geom_violin(scale = "width", trim = FALSE) +
+  labs(x = "", y = "Number of dry months") +
+  ylim(c(5, 25)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") +
+  facet_wrap(~ variable, scales = "free_x", 
+             labeller = as_labeller(c(WSH = "WSH", Nutrition = "Nutrition"))) +
+  scale_fill_manual(values = c("Nutrition.No Nutrition" = "grey", 
+                               "Nutrition.Nutrition" = "darkgreen", 
+                               "WSH.No WSH" = "grey", 
+                               "WSH.WSH" = "darkblue"))
+
+
+violin_dry_wsh_nutri
+
+
+```
+
+```{r dry by arm save, message=FALSE}
+
+#ggsave(here::here("output", "dry_violin.png"),
+ #      violin_dry, width = 6, height = 4, dpi = "retina")
+
+```
+
+## Correlation between age and number of monsoon months
+
+```{r data exploration, message=FALSE}
+
+# Ensure that Number_Months_Monsoon is numeric
+df_analysis <- df_analysis %>%
+  mutate(monsoon_months = as.numeric(monsoon_months))
+
+# Calculate the correlation between agedays and Number_Months_Monsoon
+correlation <- cor(df_analysis$agedays, df_analysis$monsoon_months,
+                   use = "complete.obs", method = "pearson")
+
+# Print the correlation
+print(correlation)
+
+# Create the scatter plot with a regression line
+correlation_plot_monsoon <- ggplot(df_analysis, aes( x = agedays,
+                                             y = monsoon_months,
+                                           )) +
+  geom_point(color = "grey", alpha = 0.5) +
+  geom_smooth(method = "lm", color = "black", se = FALSE) +
+  ylim(c(0, 20)) +
+  xlim(c(600, 1200)) +
+  labs(title = "Correlation between age and number of monsoon months",
+       x = "Age (days)",
+       y = "Number of monsoon months") +
+  theme_minimal() +
+  annotate("text", x = 800, y = 17, label = paste("Correlation:", round(correlation, 2)))
+
+# Print the plot
+print(correlation_plot_monsoon)
+```
+
+```{r corr save, message=FALSE}
+
+#ggsave(here::here("output", "correlation_monsoon_plot.png"),
+  #     correlation_plot_monsoon, width = 6, height = 4, dpi = "retina")
+
+```
+
+
+## Correlation between age and number of dry months
+
+```{r data exploration dry, message=FALSE}
+
+# Ensure that Number_Months_Dry is numeric
+df_analysis <- df_analysis %>%
+  mutate(dry_months = as.numeric(dry_months))
+
+# Calculate the correlation between agedays and Number_Months_Dry
+correlation_dry <- cor(df_analysis$agedays, df_analysis$dry_months,
+                       use = "complete.obs", method = "pearson")
+
+# Print the correlation
+print(correlation_dry)
+
+# Create the scatter plot with a regression line
+correlation_plot_dry <- ggplot(df_analysis, aes( x = agedays,
+                                                 y = dry_months,
+                                               )) +
+  geom_point(color = "grey", alpha = 0.5) +
+  geom_smooth(method = "lm", color = "black", se = FALSE) +
+  ylim(c(0, 30)) +
+  xlim(c(600, 1200)) +
+  labs(title = "Correlation between age and number of dry months",
+       x = "Age (days)",
+       y = "Number of dry months") +
+  theme_minimal() +
+  annotate("text", x = 800, y = 27, label = paste("Correlation:", round(correlation_dry, 2)))
+
+correlation_plot_dry
+
+```
+
+```{r corr save, message=FALSE}
+
+#ggsave(here::here("output", "correlation_dry_plot.png"),
+    #   correlation_plot_dry, width = 6, height = 4, dpi = "retina")
+
+```
+
+## Birth dates with monsoon months
+
+```{r dob monsoon, message=FALSE}
+
+# Define the monsoon months for 2012-2014
+monsoon_periods <- data.frame(
+  #start = as.Date(c("2012-08-08", "2013-04-27", "2014-05-27", "2015-04-01", "2016-05-12")),
+  start = as.Date(c("2012-05-12", "2013-04-27", "2014-05-27")),
+  #end   = as.Date(c("2012-09-30", "2013-10-06", "2014-09-27", "2015-09-26", "2016-06-26"))
+  end   = as.Date(c("2012-10-09", "2013-10-06", "2014-09-27"))
+)
+
+
+df_analysis <- df_analysis %>%
+  mutate(dob_datetime = as.Date(dob, format = "%d%b%Y"),
+         formatted_date = as.Date(format(dob_datetime, "%Y-%m-%d")))
+
+# Plot the birth dates with shaded monsoon months 2012-2014
+plot_birth_monsoon <- ggplot(df_analysis, aes(x = formatted_date)) +
+  geom_histogram(binwidth = 30, fill = "grey", color = "black") +
+  geom_rect(data = monsoon_periods, aes(xmin = start, xmax = end, ymin = -Inf, 
+                                        ymax = Inf), 
+            fill = "darkgrey", alpha = 0.2, inherit.aes = FALSE) +
+  ylim(0, 300) +
+  scale_x_date(date_labels = "%b %d, %Y", date_breaks = "2 month") +
+  labs(x = "Birth date", y = "Number of births", tag = "A") + 
+       #title = "Birth Dates with Monsoon Months Shaded (2012-2014)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  annotate("text", x = as.Date("2012-06-01"), y = 250, 
+           label = "Monsoon", color = "black", angle = 90, vjust = 1) +
+  annotate("text", x = as.Date("2013-06-01"), y = 250, 
+           label = "Monsoon", color = "black", angle = 90, vjust = 1) +
+  annotate("text", x = as.Date("2014-06-01"), y = 250, 
+           label = "Monsoon", color = "black", angle = 90, vjust = 1)
+
+plot_birth_monsoon
+
+```
+
+```{r dob monsoon save, message=FALSE}
+
+#ggsave(here::here("output", "birth_monsoon_plot.png"),
+      # plot_birth_monsoon, width = 6, height = 4, dpi = "retina")
+
+```
+
+
+```{r dob to measurement 2012-2016, message=FALSE}
+
+# Convert weeks to dates assuming the start of the study is the first week of 2012
+#start_date <- as.Date("2012-01-01")
+#df_analysis <- df_analysis %>%
+#  mutate(
+#    birth_date = start_date + (birthweek_study * 7),
+#    lab_date = start_date + (labweek_study * 7)
+#  )
+
+# Define the monsoon seasons for each year from 2012 to 2016
+monsoon_periods <- data.frame(
+ #start = as.Date(c("2012-08-08", "2013-04-27", "2014-05-27", "2015-04-01", "2016-05-12")),
+  start = as.Date(c("2012-05-12", "2013-04-27", "2014-05-27", "2015-04-01", "2016-05-12")),
+  #end   = as.Date(c("2012-09-30", "2013-10-06", "2014-09-27", "2015-09-26", "2016-06-26"))
+  end   = as.Date(c("2012-10-09", "2013-10-06", "2014-09-27", "2015-09-26", "2016-06-26"))
+)
+
+# Arrange the data frame by birth_date and create a new factor for dataid
+df_analysis <- df_analysis %>%
+  arrange(dob) %>%
+  mutate(dataid_ord = factor(dataid, levels = unique(dataid)))
+
+# Plot the birth dates with shaded monsoon seasons for each year
+plot_birth_meas <- ggplot(df_analysis) +
+  geom_segment(aes(x = dob, xend = collection_date, 
+                   y = as.numeric(dataid_ord), yend = as.numeric(dataid_ord), 
+                   color = "Birth to measurement"), size = 1) +
+  geom_point(aes(x = dob, y = as.numeric(dataid_ord)), color = "black", 
+             size = 1, alpha = 0.5) +
+  geom_point(aes(x = collection_date, y = as.numeric(dataid_ord)), color = "black", 
+             size = 1, alpha = 0.5, shape = 17) +
+  geom_rect(data = monsoon_periods, aes(xmin = start, xmax = end, 
+                                        ymin = -Inf, ymax = Inf), 
+            fill = "grey", alpha = 0.2, inherit.aes = FALSE) +
+  #scale_x_date(date_labels = "%b %Y", date_breaks = "2 months") +
+  scale_x_date(date_labels = "%b %d, %Y", date_breaks = "2 month") +
+  scale_y_continuous(breaks = seq(0, length(unique(df_analysis$dataid)), by = 200),
+                     labels = seq(0, length(unique(df_analysis$dataid)), by = 200)) + 
+  scale_color_manual(values = c("Birth to measurement" = "lightblue")) +
+  labs(x = "Date", y = "Children", 
+       tag = "C"
+       #tage = "B"
+       ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = c(0.15, 0.9),
+        legend.title = element_blank()) +
+  annotate("text", x = as.Date("2012-08-01"), y = 570, 
+           label = "Monsoon", color = "black", size = 3, angle = 90, vjust = 1) +
+  annotate("text", x = as.Date("2013-08-01"), y = 570, 
+           label = "Monsoon", color = "black", size = 3, angle = 90, vjust = 1) +
+  annotate("text", x = as.Date("2014-06-01"), y = 570, 
+           label = "Monsoon", color = "black", size = 3, angle = 90, vjust = 1) +
+  annotate("text", x = as.Date("2015-06-01"), y = 570, 
+           label = "Monsoon", color = "black", size = 3, angle = 90, vjust = 1) +
+  annotate("text", x = as.Date("2016-06-01"), y = 570, 
+           label = "Monsoon", color = "black", size = 3, angle = 90, vjust = 1)
+
+plot_birth_meas
+
+```
+
+
+```{r dob to measurement save, message=FALSE}
+
+#ggsave(here::here("output", "birth_measurement_plot.png"),
+   #    plot_birth_meas, width = 7, height = 5, dpi = "retina")
+
+```
+
+
+```{r combine plots, message=FALSE}
+
+# Combine the plots
+plot_combined_1 <- plot_birth_monsoon / violin_dry
+plot_combined_1
+plot_combined_2 <- plot_combined_1 / plot_birth_meas 
+plot_combined_2
+
+plot_combined_3 <- plot_birth_monsoon / plot_birth_meas
+plot_combined_3
+
+```
+
+```{r combine plots save, message=FALSE}
+
+ggsave(here::here("output", "combined_plots_dry_2.png"),
+       plot_combined_2, width = 6, height = 9, dpi = "retina")
+
+#ggsave(here::here("output", "combined_plots_RPPR.png"),
+       #plot_combined_3, width = 6, height = 9, dpi = "retina")
+
+#ggsave(here::here("output", "monsoon_RPPR.png"),
+       #violin_monsoon, width = 8, height = 7, dpi = "retina")
+
+```
+
+
+
+```{r session info}
+sessionInfo()
+
+```

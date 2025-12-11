@@ -1,0 +1,348 @@
+---
+title: "giardia and dry (WSH): factorial - using tidymv"
+author: "Pearl Ante-Testard"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = here::here("output")
+                          )})
+---
+
+
+```{r clean environment, echo=FALSE}
+
+rm(list=ls(all=TRUE))
+
+```
+
+```{r configuration, message=FALSE}
+
+library(here)
+source(here::here("R", "0-config.R"))
+#rmarkdown::render(here::here("R", "cohort-effect.Rmd"))
+
+```
+
+```{r read formatted data, message=FALSE}
+
+df_analysis <- readRDS(file = here::here("data", "final",    
+        "exposure-monsoon-protozoa-2015-16-anthrosvy2-latest-2.rds"
+        #"exposure-monsoon-protozoa-2015-16-anthrosvy2-latest.rds"
+        #"exposure-monsoon-protozoa-2015-16-anthrosvy2.rds"
+                      )) 
+
+df_analysis$cohort_year <- format(as.Date(df_analysis$dob), "%Y")
+table(df_analysis$cohort_year)
+
+colnames(df_analysis)
+table(df_analysis$posgi)
+summary(df_analysis$dry_months)
+table(df_analysis$tr)
+
+```
+
+```{r dry plot, message=FALSE}
+
+# Plot a histogram of dry_months
+hist(#df_analysis$Number_Months_Dry,
+     df_analysis$dry_months,
+     main = "Histogram of Number_Months_Dry", 
+     xlab = "Number_Months_Dry", 
+     ylab = "Frequency", 
+     col = "blue", 
+     border = "black")
+
+```
+
+
+```{r data, message=FALSE}
+
+df_analysis <- df_analysis %>%
+  mutate(
+    block = factor(block),
+    clusterid = factor(clusterid),
+    WSH = case_when(grepl("WSH", tr) ~ "WSH",
+                    TRUE ~ "No WSH"),
+    WSH = factor(WSH, levels = c("No WSH", "WSH")),
+    Nutrition = case_when(grepl("Nutrition", tr) ~ "Nutrition",
+                    TRUE ~ "No Nutrition"),
+    Nutrition = factor(Nutrition, levels = c("No Nutrition", "Nutrition")),
+    posgi = case_when(
+      posgi == "0" ~ 0,
+      posgi == "1" ~ 1
+    ),
+    posgi = factor(posgi),
+    dummy = 1)
+
+df_analysis <- df_analysis %>%
+  filter(!is.na(WSH)) %>%
+  filter(!is.na(Nutrition))
+  
+
+# Print the first few rows to verify
+head(df_analysis)
+table(df_analysis$WSH, useNA = "always")
+table(df_analysis$WSH, df_analysis$posgi, useNA = "always")
+table(df_analysis$Nutrition, useNA = "always")
+table(df_analysis$Nutrition, df_analysis$posgi, useNA = "always")
+
+```
+
+```{r posgi by arm}
+
+df_analysis <- df_analysis %>%
+  mutate(posgi_num = case_when(
+    posgi == "0" ~ 0,
+    posgi == "1" ~ 1,
+    TRUE ~ as.numeric(NA)
+  ))
+
+table(df_analysis$WSH, df_analysis$posgi, useNA = "always")
+table(df_analysis$Nutrition, df_analysis$posgi, useNA = "always")
+
+```
+
+## Modelling posgi ~ dry months 
+## intervention: WSH
+
+```{r gam, echo=FALSE, message=FALSE}
+
+# relevel WSH 
+df_analysis$WSH <- relevel(df_analysis$WSH, ref = "WSH")
+# relevel Nutrition
+df_analysis$Nutrition <- relevel(df_analysis$Nutrition, ref = "Nutrition")
+
+# base model
+mod_gam_0 = gam(posgi_num ~ WSH + Nutrition + 
+                  #block + 
+               s(block, bs = "re"), 
+               data = df_analysis,
+               family = "gaussian", method = "REML")
+summary(mod_gam_0)
+
+# model with interaction between WSH and Nutrition
+mod_gam_1 = gam(posgi_num ~ WSH + Nutrition + WSH:Nutrition +
+                  #block + 
+               s(block, bs = "re"), 
+               data = df_analysis,
+               family = "gaussian", method = "REML")
+summary(mod_gam_1)
+
+# model without interaction between WSH and Nutrition since it's not significant
+# based on the previous model. added a smooth term for dry months by WSH
+mod_gam_2 = gam(posgi_num ~ WSH + Nutrition + 
+                  #block + 
+                  s(#Number_Months_Dry,
+                    dry_months,
+                    bs = "cr", by = WSH) +
+                  s(block, bs = "re"), 
+               data = df_analysis,
+               family = "gaussian", method = "REML")
+summary(mod_gam_2)
+
+# model without interaction between WSH and Nutrition since it's not significant
+# based on the previous model. added a smooth term for dry months by WSH and Nutrition
+mod_gam_3 = gam(posgi_num ~ WSH + Nutrition + 
+                  #block + 
+                  s(#Number_Months_Dry,
+                    dry_months,
+                    bs = "cr", by = WSH) +
+                  s(#Number_Months_Dry, 
+                    dry_months,
+                    bs = "cr", by = Nutrition) +
+               s(block, bs = "re"), 
+               data = df_analysis,
+               family = "gaussian", method = "REML")
+summary(mod_gam_3)
+
+# model without interaction between WSH and Nutrition since it's not significant
+# based on the previous model. added a smooth term for dry months by WSH and Nutrition
+# and added a smooth term for age and cohort year (based on cohort-effect.Rmd)
+mod_gam_4 = gam(posgi_num ~ WSH + Nutrition + s(agedays) + factor(cohort_year) +
+                  #block + 
+                  s(#Number_Months_Dry, 
+                    dry_months,
+                    bs = "cr", by = WSH) +
+                  s(block, bs = "re"), 
+               data = df_analysis,
+               family = "gaussian", method = "REML")
+summary(mod_gam_4)
+gam.check(mod_gam_4)
+
+# and added a smooth term for age
+#mod_gam_4b = gam(posgi_num ~ WSH + Nutrition + s(agedays) +
+                 # s(Number_Months_Dry, bs = "cr", by = WSH, k=5) +
+                 # s(block, bs = "re"), 
+               #data = df_analysis,
+               #family = "gaussian", method = "REML")
+
+#AIC(mod_gam_4a, mod_gam_4b)
+
+mod_gam_5 = gam(posgi_num ~ WSH + Nutrition + s(agedays) + factor(cohort_year) +
+                  #block + 
+                  s(#Number_Months_Dry,
+                    dry_months,
+                    bs = "cr", by = Nutrition) +
+                  s(block, bs = "re"), 
+               data = df_analysis,
+               family = "gaussian", method = "REML")
+summary(mod_gam_5)
+gam.check(mod_gam_5)
+
+
+#mod_gam_5b = gam(posgi_num ~ WSH + Nutrition + s(agedays) +
+                 # s(Number_Months_dry, bs = "cr", by = Nutrition, k=5) +
+                 # s(block, bs = "re"), 
+              # data = df_analysis,
+              # family = "gaussian", method = "REML")
+
+#AIC(mod_gam_5a, mod_gam_5b)
+
+```
+
+```{r 1}
+
+mod_gam_4 = gam(posgi_num ~ WSH + Nutrition + s(agedays) + 
+                  factor(cohort_year) + #block +
+                  s(dry_months,
+                    bs = "cr", by = WSH) +
+                  s(block, bs = "re"), 
+                data = df_analysis,
+                family = "gaussian", method = "REML")
+
+
+mod_gam_4_ratio = gam(posgi_num ~ WSH + Nutrition + s(agedays) +
+                        factor(cohort_year) + #block +
+                        s(dry_months,
+                          bs = "cr", by = WSH) +
+                        s(block, bs = "re"), 
+                      data = df_analysis,
+                      family = "binomial"(link="log"), method = "REML")
+
+```
+
+```{r 2}
+gam_plot_prev <- plot_smooths(model = mod_gam_4, series = dry_months, 
+                              comparison = WSH, exclude_terms = c("s(agedays)", "factor(cohort_year)", #"block",
+                                                                  "Nutrition", "s(clusterid)"),
+                              exclude_random = TRUE) +
+  scale_colour_manual(values = c('blue','darkgrey')) + 
+  scale_fill_manual(values = c('blue','darkgrey')) + 
+  scale_linetype_manual(values=c("solid","dashed")) +
+  scale_x_continuous(breaks=seq(12,22), 
+                     limits = c(12,22)) +
+  scale_y_continuous(breaks=seq(0,0.8,by=0.2), 
+                     labels =  sprintf("%1.0f",seq(0,0.8,by=0.2)*100),
+                     limits = c(0, 0.8)) +
+  labs(colour = "WSH", fill = "WSH", linetype = "WSH") +
+  labs(x = "Cumulative dry months",
+       y = "Giardia Prevalence (%)", tag = "A \n") +
+  theme_minimal() +
+  theme(legend.position = c(0.55,0.90),
+        legend.title = element_blank()) 
+
+gam_plot_prev
+
+```
+
+
+```{r 3}
+
+gam_diff <- get_smooths_difference(mod_gam_4, dry_months, 
+                                    difference = list(WSH = c("WSH",
+                                                              "No WSH")))
+
+print(gam_diff)
+
+gam_ratio <- get_smooths_difference(mod_gam_4_ratio, dry_months, 
+                                    difference = list(WSH = c("WSH",
+                                                               "No WSH")))
+
+print(gam_ratio)
+exp(gam_ratio$difference); exp(gam_ratio$CI_lower); exp(gam_ratio$CI_upper)
+
+gam_ratio <- gam_ratio %>%
+  mutate(ratio=exp(difference),
+         CI_lower_ratio=exp(CI_lower),
+         CI_upper_ratio=exp(CI_upper))
+
+```
+
+```{r 4}
+
+plot_diff <- ggplot(gam_diff, aes(dry_months, difference#, group=group
+)) +
+  geom_hline(aes(yintercept = 0), linetype = "dotted") + 
+  geom_ribbon(aes(ymin = CI_lower, ymax = CI_upper#, fill = sig_diff
+  ), alpha = 0.3) +
+  geom_line(aes(#colour = sig_diff
+  ), linewidth = 0.6) +
+  scale_x_continuous(breaks=seq(12,22), 
+                     limits = c(12,22)) +
+  scale_y_continuous(breaks=seq(-0.2,0.10,by=0.02), 
+                     labels =  sprintf("%1.0f",seq(-0.2,0.10,by=0.02)*100),
+                     limits = c(-0.2, 0.10)) +
+  labs(x = "Cumulative dry months",
+       y = "Prevalence Difference (PD)", tag = "B \n") +
+  #coord_cartesian(ylim=c(-0.01,0.07)) +
+  theme_minimal() 
+
+plot_diff
+
+
+```
+
+```{r 5}
+
+plot_ratio <- ggplot(gam_ratio, aes(dry_months, ratio#, group=group
+)) +
+  geom_hline(aes(yintercept = 1), linetype = "dotted") + 
+  geom_ribbon(aes(ymin = CI_lower_ratio, ymax = CI_upper_ratio#, fill = sig_diff
+  ),  alpha = 0.3) +
+  geom_line(aes(#olour = sig_diff
+  ), linewidth = 0.6) +
+  scale_x_continuous(breaks=seq(12,22), 
+                     limits = c(12,22)) +
+  scale_y_continuous(breaks=seq(0.4,1.6,by=0.2), 
+                     limits = c(0.4, 1.6)) +
+  labs(x = "Cumulative dry months",
+       y = "Prevalence Ratio (PR)", tag = "C \n") +
+  #coord_cartesian(ylim=c(0.8,3)) +
+  theme_minimal() 
+
+plot_ratio
+
+```
+
+
+
+```{r combined plot, echo=FALSE}
+
+combined_plot <- gam_plot_prev / plot_diff / plot_ratio 
+combined_plot
+
+```
+
+
+```{r plot save, echo=FALSE}
+
+ggsave(here("output", "giardia-dry-effects-tidymv-2.png"),
+       combined_plot, height = 8, width = 5, dpi = "retina")
+```
+
+```{r session info}
+
+sessionInfo()
+
+```

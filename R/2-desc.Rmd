@@ -1,0 +1,121 @@
+---
+title: "descriptive statistics"
+author: "Pearl Ante-Testard"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = here::here("output")
+                          )})
+---
+
+
+```{r clean environment, echo=FALSE}
+
+rm(list=ls(all=TRUE))
+
+```
+
+```{r configuration, message=FALSE}
+
+source(here::here("R", "0-config.R"))
+
+```
+
+```{r read formatted data, message=FALSE}
+
+df_analysis <- readRDS(file = here::here("data", "final",               
+                   "exposure-monsoon-protozoa-2015-16-anthrosvy2-latest-2.rds"))             
+df_analysis$cohort_year <- format(as.Date(df_analysis$dob), "%Y")
+table(df_analysis$cohort_year)
+df_analysis$collectyear <- factor(df_analysis$collectyear)
+
+colnames(df_analysis)
+table(df_analysis$posgi)
+summary(df_analysis$monsoon_months)
+summary(df_analysis$dry_months)
+table(df_analysis$tr)
+table(df_analysis$collectyear, df_analysis$collectweek) 
+table(df_analysis$monsoon) 
+```
+
+
+```{r data, message=FALSE}
+
+df_analysis <- df_analysis %>%
+  mutate(
+    block = factor(block),
+    WSH = case_when(grepl("WSH", tr) ~ "WSH",
+                    TRUE ~ "No WSH"),
+    WSH = factor(WSH, levels = c("No WSH", "WSH")),
+    Nutrition = case_when(grepl("Nutrition", tr) ~ "Nutrition",
+                    TRUE ~ "No Nutrition"),
+    Nutrition = factor(Nutrition, levels = c("No Nutrition", "Nutrition")))
+
+```
+
+## Descriptive statistics by WSH and Nutrition
+
+```{r render 1 function, echo=FALSE}
+
+# Custom render function for the variables
+rndr <- function(x, name, ...) {
+  if (!is.numeric(x)) return(render.categorical.default(x))
+  what <- switch(name,
+                 agedays = "Mean (SD)",
+                 monsoon_months = "Mean (SD)",
+                 dry_months = "Mean (SD)",
+                 delta_prot = "Mean (SD)"
+                 )
+  
+  parse.abbrev.render.code(c("", what))(x)
+}
+```
+
+```{r render 2 function, echo=FALSE}
+
+# Generate table1 
+tables_wsh <- table1(~ sex + agedays + monsoon_months + monsoon + 
+                       dry_months +
+                       delta_prot + cohort_year + collectyear
+                 | WSH,
+                 data = df_analysis, 
+                 overall = FALSE, 
+                 rowlabelhead = "WSH", 
+                 render = rndr, 
+                 topclass = "Rtable1-grid Rtable1-shade Rtable1-times Rtable1-row")
+tables_wsh
+
+```
+
+
+```{r render 3 function, echo=FALSE}
+
+# Generate table1 
+tables_nutri <- table1(~ sex + agedays + monsoon_months + monsoon + 
+                          dry_months +
+                         delta_prot + cohort_year + collectyear
+                 | Nutrition,
+                 data = df_analysis, 
+                 overall = FALSE, 
+                 rowlabelhead = "Nutrition", 
+                 render = rndr, 
+                 topclass = "Rtable1-grid Rtable1-shade Rtable1-times Rtable1-row")
+tables_nutri
+
+```
+
+```{r session info}
+sessionInfo()
+
+```

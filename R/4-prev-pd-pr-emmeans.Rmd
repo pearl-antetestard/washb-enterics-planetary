@@ -1,0 +1,572 @@
+---
+title: "Absolute & relative estimates - Giardia and binary monsoon using emmeans to estimate the SEs, also accounted for clustering at block level."
+author: "Pearl Ante-Testard"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = here::here("output")
+                          )})
+---
+
+
+```{r clean environment, echo=FALSE}
+
+rm(list=ls(all=TRUE))
+
+```
+
+```{r configuration, message=FALSE}
+
+library(here)
+source(here::here("R", "0-config.R"))
+
+```
+
+# Read data 
+```{r read formatted data, message=FALSE}
+
+df_analysis <- readRDS(file = here::here("data", "final",  
+                                         "exposure-monsoon-protozoa-2015-16-anthrosvy2-latest-2.rds"                                        #"exposure-monsoon-protozoa-2015-16-anthrosvy2-latest.rds"
+                      #"exposure-monsoon-protozoa-2015-16-anthrosvy2.rds"
+                      )) 
+
+```
+
+```{r monsoon plot, message=FALSE}
+
+# Plot a histogram of monsoon season
+table(df_analysis$monsoon)
+plot(df_analysis$monsoon)
+```
+
+
+```{r data, message=FALSE}
+
+df_analysis <- df_analysis %>%
+  mutate(
+    block = factor(block),
+    clusterid = factor(clusterid),
+    WSH = case_when(grepl("WSH", tr) ~ "WSH",
+                    TRUE ~ "No WSH"),
+    WSH = factor(WSH, levels = c("No WSH", "WSH")),
+    Nutrition = case_when(grepl("Nutrition", tr) ~ "Nutrition",
+                    TRUE ~ "No Nutrition"),
+    Nutrition = factor(Nutrition, levels = c("No Nutrition", "Nutrition")),
+    posgi = case_when(
+      posgi == "0" ~ 0,
+      posgi == "1" ~ 1
+    ),
+    posgi = factor(posgi),
+    dummy = 1)
+
+df_analysis <- df_analysis %>%
+  filter(!is.na(WSH)) %>%
+  filter(!is.na(Nutrition))
+  
+
+# Print the first few rows to verify
+head(df_analysis)
+table(df_analysis$tr, useNA = "always")
+table(df_analysis$WSH, useNA = "always")
+table(df_analysis$Nutrition, useNA = "always")
+
+```
+
+```{r posgi by arm, message=FALSE}
+
+df_analysis <- df_analysis %>%
+  mutate(posgi_num = case_when(
+    posgi == "0" ~ 0,
+    posgi == "1" ~ 1,
+    TRUE ~ as.numeric(NA)
+  ),
+  monsoon_n = case_when(
+      monsoon == 0 ~ 0,
+      monsoon == 1 ~ 1,
+      TRUE ~ as.numeric(NA)
+    ))
+
+# get the Giardia % prevalence by monsoon
+df_analysis %>%
+  group_by(monsoon_n) %>%
+  summarise(
+    n = n(),
+    positive = sum(posgi_num, na.rm = TRUE),
+    prevalence = mean(posgi_num, na.rm = TRUE)
+  )
+
+
+
+```
+
+# There's no interaction between WSH and Nutrition
+
+```{r a, message=FALSE}
+
+# base model
+glm_base <- glm(posgi_num ~ WSH + Nutrition,
+                 family = binomial(link="identity"),
+                 #family = "gaussian"(link="identity"),
+                 data = df_analysis
+)
+summary(glm_base)
+
+# model with interaction terms between WSH and Nutrition
+glm_1 <- glm(posgi_num ~ WSH + Nutrition + WSH*Nutrition,
+               family = binomial(link="identity"),
+               #family = "gaussian"(link="identity"),
+               data = df_analysis
+)
+summary(glm_1)
+# no interaction between WSH and Nutrition
+
+```
+
+# Modeling the prevalence of Giardia by WSH and monsoon and through a factorial design
+## To test for interaction, we compared the model with and without interaction using a Wald test
+## 0.66 interaction p-value (using block for clustering)
+```{r 0, message=FALSE}
+
+#### WSH
+
+glm_int_iden <- glm(posgi_num ~ monsoon + #block +#agedays +
+                      WSH + Nutrition + monsoon*WSH,
+                    family = binomial(link="identity"),
+                    #family = "gaussian"(link="identity"),
+                    data = df_analysis
+)
+summary(glm_int_iden)
+
+# get robust var-covar matrix, allowing for block-level clustering 
+glmfit_robust_iden_vcov <- vcovCL(glm_int_iden,cluster=df_analysis$block)
+
+# update regression fit
+glmfit_lin_robustse <- coeftest(glm_int_iden,vcov. =  glmfit_robust_iden_vcov)
+print(glmfit_lin_robustse)
+
+# modeling a glm fit without an interaction
+glm_noint_iden <- glm(posgi_num ~ monsoon + #agedays + 
+                        #block +
+                        WSH + Nutrition,
+                      family = binomial(link="identity"),
+                      #family = "gaussian"(link="identity"),
+                      data = df_analysis
+)
+#summary(glm_noint_iden)
+print(coeftest(glm_noint_iden, vcov. =  glmfit_robust_iden_vcov))
+
+# wald test to compare the models with and without interaction
+wald_pd <- waldtest(glm_int_iden, glm_noint_iden, vcov = glmfit_robust_iden_vcov) 
+print(wald_pd)
+
+```
+
+# Prevalence and prev. difference estimation using emmeans
+```{r 5, message=FALSE}
+
+# Get the emmeans object of the fitted model with interaction
+emm_wsh <- emmeans(glm_int_iden, ~ monsoon * WSH, vcov. =  glmfit_robust_iden_vcov)
+summary(emm_wsh)
+
+# Get the contrasts of interest
+emm_cont_pd <- contrast(emm_wsh, method = "trt.vs.ctrl", by = "monsoon", type = "response")
+summary(emm_cont_pd, infer = TRUE)
+
+```
+
+# Prevalence and prev. difference dataframes
+```{r 6, message=FALSE}
+
+dat_prev <- as.data.frame(emm_wsh) %>%
+  mutate(lower = asymp.LCL,
+         upper = asymp.UCL,
+         Season = monsoon,
+         Season = recode(Season, `0` = "dry", `1` = "monsoon"),
+         Intervention = WSH)
+
+emm_cont_pd_df <- as.data.frame(emm_cont_pd) %>%
+  mutate(lower_bound = estimate - 1.96 * SE,
+         upper_bound = estimate + 1.96 * SE)
+```
+
+
+# Plot the prevalence
+```{r 4, message=FALSE}
+
+# Plotting
+plot_prev <- ggplot(dat_prev, aes(x = Season, y = emmean * 100, 
+                                  color = Intervention)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +  # Central estimates as points
+  scale_color_manual(values = c("WSH" = "blue", "No WSH" = "darkgrey")) +
+  geom_errorbar(aes(ymin = lower * 100, ymax = upper * 100), 
+                position = position_dodge(width = 0.5), width = 0.2) +  # Error bars
+  #scale_x_discrete(breaks = c(0, 1), labels = c("dry", "monsoon")) +  # Change x-axis labels
+  scale_y_continuous(breaks = seq(0, 45, by = 5), 
+                     limits = c(0, 45)) +  # Y-axis breaks by 5
+  labs(x = "Season", y = "Prevalence of Giardia (%)", color = "Intervention",
+       tag = "A \n") +
+  theme_minimal() +
+  theme(legend.position = c(0.90, 0.90))
+
+plot_prev
+
+```
+
+
+# Plot the prevalence difference
+```{r 7, message=FALSE}
+
+glm_plot_wsh_pd <- ggplot(emm_cont_pd_df, aes(x = monsoon, y = estimate*100)) +
+  geom_point(size = 3, color = "black") +  # Central estimate as a point
+  geom_errorbar(aes(ymin = lower_bound*100, ymax = upper_bound*100), width = 0.2) +
+  scale_x_discrete(breaks = c(0, 1), labels = c("dry", "monsoon")) +  # Change x-axis labels
+  scale_y_continuous(breaks = seq(-15, 5, by = 5), limits = c(-15, 5)) +  # Y-axis breaks by 5
+  geom_hline(yintercept = 0, linetype=2) +
+  labs(x = "Season", y = "Prevalence Difference", 
+       tag = "B \n") +
+  theme_minimal()
+
+glm_plot_wsh_pd
+
+```
+
+# Prevalence Ratio
+
+# Modeling the prevalence of Giardia by WSH and monsoon and through a factorial design
+## To test for interaction, we compared the model with and without interaction using a Wald test
+## 0.91 interaction p-value using block for clustering
+```{r 8, message=FALSE}
+
+#### WSH
+
+glm_int_log_0 <- glm(posgi_num ~ monsoon + #block +#agedays + 
+                      WSH + Nutrition + Nutrition*WSH,
+                    family = binomial(link="log"),
+                    data = df_analysis
+)
+summary(glm_int_log_0)
+# no interaction between Nutrition and WSH (pvalue: 0.7669)
+
+glm_int_log <- glm(posgi_num ~ monsoon + #block +#agedays + 
+                      WSH + Nutrition + monsoon*WSH,
+                    family = binomial(link="log"),
+                    data = df_analysis
+)
+summary(glm_int_log)
+
+# get robust var-covar matrix, allowing for block-level clustering 
+glmfit_robust_log_vcov <- vcovCL(glm_int_log,cluster=df_analysis$block)
+
+# update regression fit
+glmfit_lin_robustse <- coeftest(glm_int_log,vcov. =  glmfit_robust_log_vcov)
+print(glmfit_lin_robustse)
+
+# modeling a glm fit without an interaction
+glm_noint_log <- glm(posgi_num ~ monsoon + #block +#agedays + 
+                        WSH + Nutrition,
+                      family = binomial(link="log"),
+                      data = df_analysis
+)
+#summary(glm_noint_log)
+print(coeftest(glm_noint_log, vcov. =  glmfit_robust_log_vcov))
+
+# wald test to compare the models with and without interaction
+wald_pr <- waldtest(glm_int_log, glm_noint_log, vcov = glmfit_robust_log_vcov) 
+print(wald_pr)
+
+```
+
+
+# Prevalence ratio estimation using emmeans
+```{r 9, message=FALSE}
+
+# Get the emmeans object of the fitted model with interaction
+emm_wsh <- emmeans(glm_int_log, ~ monsoon * WSH, vcov. =  glmfit_robust_log_vcov)
+summary(emm_wsh)
+
+# Get the contrasts of interest
+emm_cont_wsh <- contrast(emm_wsh, method = "trt.vs.ctrl", by = "monsoon", type = "response", ratios = TRUE)
+summary(emm_cont_wsh, infer = TRUE)
+
+```
+
+
+# Prevalence ratio dataframes
+```{r 10, message=FALSE}
+
+emm_cont_wsh_df <- as.data.frame(emm_cont_wsh) %>%
+  mutate(lower_bound = ratio - 1.96 * SE,
+         upper_bound = ratio + 1.96 * SE)
+```
+
+# Plot the prevalence ratio
+```{r 11, message=FALSE}
+
+glm_plot_wsh_pr <- ggplot(emm_cont_wsh_df, aes(x = monsoon, y = ratio)) +
+  geom_point(size = 3, color = "black") +  # Central estimate as a point
+  geom_errorbar(aes(ymin = lower_bound, ymax = upper_bound), width = 0.2) +
+  scale_x_discrete(breaks = c(0, 1), labels = c("dry", "monsoon")) +  # Change x-axis labels
+  scale_y_continuous(breaks = seq(0.5, 1.25, by = 0.25), limits = c(0.5, 1.25)) +  # Y-axis breaks by 0.5
+  labs(x = "Season", y = "Prevalence Ratio", 
+       tag = "C \n") +
+  geom_hline(yintercept = 1, linetype=2) +
+  labs(x = "Season", y = "Prevalence Ratio") +
+  theme_minimal()
+
+glm_plot_wsh_pr
+
+```
+
+
+# Modeling the prevalence of Giardia by Nutrition and monsoon and through a factorial design
+## To test for interaction, we compared the model with and without interaction using a Wald test
+## 0.68 interaction p-value (using block for clustering)
+
+```{r 12, message=FALSE}
+
+glm_int_iden_nutri <- glm(posgi_num ~ monsoon + #block +#agedays + 
+                             Nutrition + WSH + monsoon*Nutrition,
+                          family = binomial(link="identity"),
+                          #family = "gaussian"(link="identity"),
+                          data = df_analysis
+)
+summary(glm_int_iden_nutri)
+
+# get robust var-covar matrix, allowing for block-level clustering 
+glmfit_robust_iden_vcov_nutri <- vcovCL(glm_int_iden_nutri,cluster=df_analysis$block)
+
+# update regression fit
+glmfit_lin_robustse_nutri <- coeftest(glm_int_iden_nutri,vcov. =  glmfit_robust_iden_vcov_nutri)
+print(glmfit_lin_robustse_nutri)
+
+# modeling a glm fit without an interaction
+glm_noint_iden_nutri <- glm(posgi_num ~ monsoon + #block +#agedays + 
+                               Nutrition + WSH,
+                            family = binomial(link="identity"),
+                            #family = "gaussian"(link="identity"),
+                            data = df_analysis
+)
+#summary(glm_noint_iden)
+print(coeftest(glm_noint_iden_nutri, vcov. =  glmfit_robust_iden_vcov_nutri))
+
+# wald test to compare the models with and without interaction
+wald_pd_nutri <- waldtest(glm_int_iden_nutri, glm_noint_iden_nutri, vcov = glmfit_robust_iden_vcov_nutri) 
+print(wald_pd_nutri)
+
+```
+
+# Prevalence and prev. difference estimation using emmeans
+```{r 17, message=FALSE}
+
+# Get the emmeans object of the fitted model with interaction
+emm_nutri <- emmeans(glm_int_iden_nutri, ~ monsoon * Nutrition, vcov. =  glmfit_robust_iden_vcov_nutri)
+summary(emm_nutri)
+
+# Get the contrasts of interest
+emm_cont_nutri <- contrast(emm_nutri, method = "trt.vs.ctrl", by = "monsoon", 
+                           type = "response")
+summary(emm_cont_nutri, infer = TRUE)
+
+```
+
+
+# Prevalence and prev. difference dataframes
+```{r 18, message=FALSE}
+
+dat_prev_nutri <- as.data.frame(emm_nutri) %>%
+  mutate(lower = asymp.LCL,
+         upper = asymp.UCL,
+         Season = monsoon,
+         Season = recode(Season, `0` = "dry", `1` = "monsoon"),
+         Intervention = Nutrition)
+
+emm_cont_nutri_df <- as.data.frame(emm_cont_nutri) %>%
+  mutate(lower_bound = estimate - 1.96 * SE,
+         upper_bound = estimate + 1.96 * SE)
+```
+
+
+# Plot the prevalence
+```{r 16, message=FALSE}
+
+plot_prev_nutri <- ggplot(dat_prev_nutri, aes(x = Season, 
+                                              y = emmean * 100, 
+                                              color = Intervention)) +
+  geom_point(position = position_dodge(width = 0.5), 
+             size = 3) +  # Central estimates as points
+  scale_color_manual(values = c("Nutrition" = "darkgreen", 
+                                "No Nutrition" = "darkgrey")) +
+  geom_errorbar(aes(ymin = lower * 100, ymax = upper * 100), 
+                position = position_dodge(width = 0.5), width = 0.2) +  # Error bars
+  #scale_x_discrete(breaks = c(0, 1), 
+                   #labels = c("dry", "monsoon")) +  # Change x-axis labels
+  scale_y_continuous(breaks = seq(0, 45, by = 5), 
+                     limits = c(0, 45)) +  # Y-axis breaks by 5
+  labs(x = "Season", y = "Prevalence of Giardia (%)", color = "Intervention") +
+  theme_minimal() +
+  theme(legend.position = c(0.90, 0.90))
+
+plot_prev_nutri
+
+```
+
+# Plot the prevalence difference
+```{r 19, message=FALSE}
+
+glm_plot_pd_nutri <- ggplot(emm_cont_nutri_df, aes(x = monsoon, y = estimate*100)) +
+  geom_point(size = 3, color = "black") +  # Central estimate as a point
+  geom_errorbar(aes(ymin = lower_bound*100, ymax = upper_bound*100), width = 0.2) +
+  scale_x_discrete(breaks = c(0, 1), labels = c("dry", "monsoon")) +
+  scale_y_continuous(breaks = seq(-20, 10, by = 5), limits = c(-20, 10)) +  # Y-axis breaks by 5
+  geom_hline(yintercept = 0, linetype=2) +  
+  labs(x = "Season", y = "Prevalence Difference", 
+       tag = "B \n") +
+  theme_minimal()
+
+
+glm_plot_pd_nutri
+
+
+```
+
+
+# Modeling the prevalence of Giardia by Nutrition and monsoon and through a factorial design
+## To test for interaction, we compared the model with and without interaction using a Wald test
+## 0.73 interaction p-value (using block for clustering)
+
+```{r 20, message=FALSE}
+
+glm_int_log_nutri <- glm(posgi_num ~ monsoon + #block + #agedays + 
+                             Nutrition + WSH + monsoon*Nutrition,
+                          family = binomial(link="log"),
+                          data = df_analysis
+)
+summary(glm_int_log_nutri)
+
+# get robust var-covar matrix, allowing for block-level clustering 
+glmfit_robust_log_vcov_nutri <- vcovCL(glm_int_log_nutri,cluster=df_analysis$block)
+
+# update regression fit
+glmfit_lin_robustse_nutri <- coeftest(glm_int_log_nutri,vcov. =  glmfit_robust_log_vcov_nutri)
+print(glmfit_lin_robustse_nutri)
+
+# modeling a glm fit without an interaction
+glm_noint_log_nutri <- glm(posgi_num ~ monsoon + #block + #agedays + 
+                               Nutrition + WSH,
+                            family = binomial(link="log"),
+                            data = df_analysis
+)
+#summary(glm_noint_iden)
+print(coeftest(glm_noint_log_nutri, vcov. =  glmfit_robust_log_vcov_nutri))
+
+# wald test to compare the models with and without interaction
+wald_pr_nutri <- waldtest(glm_int_log_nutri, glm_noint_log_nutri, vcov = glmfit_robust_log_vcov_nutri) 
+print(wald_pr_nutri)
+
+```
+
+# Prevalence ratio estimation using emmeans
+```{r 21, message=FALSE}
+
+# Get the emmeans object of the fitted model with interaction
+emm_nutri <- emmeans(glm_int_log_nutri, ~ monsoon * Nutrition, vcov. =  glmfit_robust_log_vcov_nutri)
+
+# Get the contrasts of interest
+emm_cont_nutri <- contrast(emm_nutri, method = "trt.vs.ctrl", 
+                           by = "monsoon", 
+                           type = "response",
+                           ratios = TRUE)
+summary(emm_cont_nutri, infer = TRUE)
+
+```
+
+# Prevalence difference dataframes
+```{r 22, message=FALSE}
+
+emm_cont_nutri_df <- as.data.frame(emm_cont_nutri) %>%
+  mutate(lower_bound = ratio - 1.96 * SE,
+         upper_bound = ratio + 1.96 * SE)
+```
+
+
+# Plot the prevalence ratio
+```{r 23, message=FALSE}
+
+glm_plot_pr_nutri <- ggplot(emm_cont_nutri_df, aes(x = monsoon, 
+                                                   y = ratio)) +
+  geom_point(size = 3, color = "black") +  # Central estimate as a point
+  geom_errorbar(aes(ymin = lower_bound, ymax = upper_bound), 
+                width = 0.2) +
+  scale_x_discrete(breaks = c(0, 1), labels = c("dry", "monsoon")) +
+  labs(x = "Season", y = "Prevalence Ratio", 
+       tag = "C \n") +
+  scale_y_continuous(breaks = seq(0.5, 1.5, by = 0.25), 
+                     limits = c(0.5, 1.5)) +  # Y-axis breaks by 5
+  geom_hline(yintercept = 1, linetype=2) +  
+  labs(x = "Season", y = "Prevalence Ratio", tag = "A\n") +
+  theme_minimal()
+
+
+glm_plot_pr_nutri
+
+
+```
+
+
+# Combine the plots
+
+```{r 24, message=FALSE}
+
+# Combine the plots
+#comb_prev_plot <- plot_prev + plot_prev_nutri
+#comb_prev_plot
+
+#comb_pd_plot <- glm_plot_pd + glm_plot_pd_nutri
+#comb_pd_plot
+
+#comb_plot <- comb_prev_plot / comb_pd_plot
+#comb_plot
+
+comb_plot_wsh <- plot_prev / glm_plot_wsh_pd / glm_plot_wsh_pr
+comb_plot_wsh
+
+comb_plot_nutri <- plot_prev_nutri / glm_plot_pd_nutri / glm_plot_pr_nutri
+comb_plot_nutri
+
+
+```
+
+# Save the plot
+
+```{r 25, message=FALSE}
+
+#ggsave(here("output", "giardia-binarymonsoon-wsh-nutri-emmeans-2.png"),
+       #comb_plot, height = 8, width = 8, dpi = "retina")
+
+ggsave(here("output", "giardia-binarymonsoon-wsh-emmeans-4.png"),
+       comb_plot_wsh, height = 8, width = 5, dpi = "retina")
+
+ggsave(here("output", "giardia-binarymonsoon-nutri-emmeans-3.png"),
+       comb_plot_nutri, height = 8, width = 5, dpi = "retina")
+
+
+```
+
+# System information
+
+```{r 26, message=FALSE}
+
+sessionInfo()
+
+```
